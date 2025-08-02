@@ -6,3 +6,16 @@ SeleniumBase/
 .git/
 .pytest_cache/
 bot_env/
+*.pyc
+*.log
+*.tmp
+*.cache
+*.pkl
+*.h5
+*.mp4
+*.avi
+*.mov
+__pycache__/
+downloaded_files/ 
+*.env
+*.DS_Store
