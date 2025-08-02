@@ -6,3 +6,4 @@ SeleniumBase/
 login_gmail_selenium/
 .git/
 .pytest_cache/
+bot_env/
