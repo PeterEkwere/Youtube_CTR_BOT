@@ -4,6 +4,7 @@ import random
 import secrets
 import string
 from random import randint, uniform
+import time
 from time import sleep
 
 import selenium.webdriver.support.expected_conditions as EC
@@ -19,6 +20,83 @@ def sleep_for(period):
     sleep(randint(period[0], period[1]))
 
 
+
+
+def enter_text(driver, selector, text, button=False, by=By.CSS_SELECTOR, timeout=30, max_retries=2):
+    """
+    Enhanced text entry function with:
+    - Explicit element waiting
+    - Network resilience
+    - Error recovery
+    - Human-like typing patterns
+    """
+    for attempt in range(max_retries + 1):
+        try:
+            # Wait for element to be interactable with extended timeout
+            element = WebDriverWait(driver, timeout).until(
+                EC.element_to_be_clickable((by, selector)))
+            
+            # # Scroll element into view
+            # driver.execute_script("arguments[0].scrollIntoViewIfNeeded(true);", element)
+            
+            # Clear existing text with retries
+            for _ in range(3):
+                element.clear()
+                if element.get_attribute('value') == '':
+                    break
+                time.sleep(0.5)
+            
+            # Human-like typing simulation
+            time.sleep(random.uniform(0.2, 1.0))  # Initial hesitation
+            
+            for char_index, char in enumerate(text):
+                # Occasionally introduce typos (5% chance)
+                if random.random() < 0.05:
+                    # Type wrong character
+                    typo_char = random.choice(string.ascii_lowercase)
+                    element.send_keys(typo_char)
+                    time.sleep(random.uniform(0.1, 0.4))
+                    
+                    # Correct with backspace
+                    element.send_keys(Keys.BACKSPACE)
+                    time.sleep(random.uniform(0.1, 0.3))
+                
+                # Type actual character
+                element.send_keys(char)
+                
+                # Variable typing speed with occasional pauses
+                if char_index % 5 == 0 and random.random() < 0.3:
+                    # Longer pause after every 5 chars sometimes
+                    time.sleep(random.uniform(0.3, 0.8))
+                else:
+                    time.sleep(random.uniform(0.05, 0.2))
+            
+            # Final action if needed
+            if button:
+                time.sleep(random.uniform(0.5, 1.5))  # Hesitation before submit
+                element.send_keys(Keys.ENTER)
+                # Wait for action to start
+                time.sleep(random.uniform(0.5, 1))
+            
+            return True
+        
+        except (StaleElementReferenceException, ElementNotInteractableException):
+            print(f"Element became stale/uninteractable. Retry {attempt+1}/{max_retries}")
+            time.sleep(2)
+            continue
+            
+        except Exception as e:
+            print(f"Text entry failed: {type(e).__name__}")
+            if attempt == max_retries:
+                print(f"Critical error in text entry after {max_retries} retries")
+                return False
+            time.sleep(3)
+    
+    return False
+
+
+
+
 def type_text(driver, text, xpath, custom_enter=None, paste_text=Constant.PASTE_PERCENTAGE, loading=False,
               refresh=False, script=None):
     input_keyword = None
@@ -30,6 +108,7 @@ def type_text(driver, text, xpath, custom_enter=None, paste_text=Constant.PASTE_
 
         if random.randrange(100) < paste_text:
             input_keyword.send_keys(text)
+            sleep(uniform(.01, .25))
         else:
             for letter in text:
                 input_keyword.send_keys(letter)

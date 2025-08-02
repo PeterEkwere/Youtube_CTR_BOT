@@ -77,6 +77,23 @@ def like_comments_faster():
 
 
 
+def new_youtube_test():
+    try:
+        yt = Youtube()
+        accounts = yt.extract_accounts("accounts.json")
+        urls = yt.extract_urls("urls.json")
+        for account in accounts:
+            print(f"passing {account} and urls to bot")
+            start_time = time.time()
+            yt.process_account(account, urls)            
+            end_time = time.time()  #Record end time after the simulated like operation
+            elapsed_time = end_time - start_time
+            print(f"Start Time: {time.strftime('%H:%M:%S', time.localtime(start_time))}")
+            print(f"End Time:   {time.strftime('%H:%M:%S', time.localtime(end_time))}")
+            print(f"Elapsed Time: {elapsed_time:.2f} seconds")
+    except Exception as e:
+        print(f"An error occurred in new_youtube_test: {e}")
+        return "False"
 
 if __name__=="__main__":
-    like_comments()
+    new_youtube_test()

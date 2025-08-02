@@ -138,14 +138,14 @@ class ChromeProfile:
         # return Driver(service=service, options=options, version_main=get_version(), quit_callback=self.clear_cache)
         path = path.replace("\\", "/")
         path = path.replace(" ", "")
-        print(f"injecting Javascript to alter PLATFORM- WEBGL- RENDER-\n")
+        #print(f"injecting Javascript to alter PLATFORM- WEBGL- RENDER-\n")
 
         driver = Driver(uc=True,
                     browser='chrome',
                     # headless=False,
                     # headless2=False,
                     # f'{proxy_username}:{proxy_password}@{proxy_server}'
-                    proxy='socks5://197.210.131.114:4145',
+                    #proxy='socks5://197.210.131.114:4145',
                     # proxy_type=proxy_type,
                     # multi_proxy=False
                     user_data_dir=path,
