@@ -657,7 +657,7 @@ class Youtube:
                                                 selector += `#${el.id}`;
                                                 path.unshift(selector);
                                                 break;
-                                            } 
+                                            }
                                             else if (el.name) {
                                                 selector += `[name="${el.name}"]`;
                                                 path.unshift(selector);
@@ -880,6 +880,7 @@ class Youtube:
                 
                 # Add random scrolling through results
                 self.scroll(driver)
+                time.sleep(random.uniform(0.5, 1.5))
 
 
                 self.handle_youtube_search_results(driver, video_url)
@@ -890,8 +891,7 @@ class Youtube:
                 driver.save_screenshot("youtube_search_error.png")
                 raise
             
-            # Continue with your next steps here...
-            # For example: finding specific video, interacting with it, etc.
+
 
             time.sleep(1000)
         except Exception as e:
@@ -900,69 +900,290 @@ class Youtube:
 
 
     def handle_youtube_search_results(self, driver, target_video_url=None):
-        """Your custom logic for interacting with YouTube search results"""
+        """Refactored logic for interacting with YouTube search results"""
         try:
+            print("Starting handle_youtube_search_results...")
             if not target_video_url:
                 print("No target video URL provided. Skipping video search.")
                 return
-                
-            # Extract video ID from target URL
+
+            print(f"Target video URL: {target_video_url}")
             target_video_id = self.extract_video_id(target_video_url)
             if not target_video_id:
                 print(f"Invalid YouTube URL: {target_video_url}")
                 return
-                
-            print(f"Searching for video ID: {target_video_id}")
-            
-            # Scroll through results to find target video
+            print(f"Extracted target video ID: {target_video_id}")
+
             found = False
+            found_video = None
             scroll_attempts = 0
-            max_scroll_attempts = 5  # Prevent infinite scrolling
-            
+            max_scroll_attempts = 5
+            video_elements = []
+
+            # Try to find the target video, downplaying some videos each time
             while not found and scroll_attempts < max_scroll_attempts:
-                # Get all video elements in current view
-                video_elements = driver.find_elements(
-                    By.CSS_SELECTOR, 'ytd-video-renderer:not([hidden])'
-                )
-                
-                for video in video_elements:
-                    try:
-                        # Get video link
-                        video_link = video.find_element(
-                            By.CSS_SELECTOR, 'a#video-title'
-                        ).get_attribute('href')
-                        
-                        current_video_id = self.extract_video_id(video_link)
-                        
-                        if current_video_id == target_video_id:
-                            print(f"Found target video: {video_link}")
-                            found = True
-                            
-                            # Scroll to video
-                            self.scroll(driver, video)
-                            
-                            # Add human-like hesitation
-                            time.sleep(random.uniform(1.5, 3.5))
-                            
-                            # Click on video
-                            video_link_element = video.find_element(
-                                By.CSS_SELECTOR, 'a#video-title'
-                            )
-                            video_link_element.click()
-                            print("Clicked on target video")
-                            
-                            # Break out of loops
-                            break
-                    
-                    except Exception as e:
-                        # Skip if any element is stale or not found
-                        continue
-                
+                print(f"Search attempt {scroll_attempts+1}/{max_scroll_attempts}")
+                found, video_elements, found_video = self.find_target_video(driver, target_video_id)
+                print(f"Found: {found}, Number of video elements: {len(video_elements)}")
+                # Downplay some videos in the current view
+                print("Downplaying some videos in current view...")
+                self.downplay_videos(driver, video_elements)
+                print("Done downplaying videos.")
                 if found:
+                    print("Target video found in search results.")
                     break
+                print("Target video not found, scrolling to load more videos...")
+                self.scroll_to_bottom(driver)
+                scroll_attempts += 1
+                time.sleep(random.uniform(2.0, 4.0))
+
+            if not found:
+                print(f"Target video not found after {max_scroll_attempts} scroll attempts. Scrolling to top and checking recently uploaded...")
+                self.scroll_to_top(driver)
+                self.check_recently_uploaded(driver)
+                # Try to find the target video again after filtering
+                found, video_elements, found_video = self.find_target_video(driver, target_video_id)
+                print(f"After checking recently uploaded, found: {found}")
+
+            if found and found_video is not None:
+                print("Clicking on the found target video...")
+                try:
+                    self.scroll(driver, found_video)
+                    time.sleep(random.uniform(1.0, 2.0))
+                    print(f"About to click found video: displayed={found_video.is_displayed()}, enabled={found_video.is_enabled()}")
+                    try:
+                        found_video.click()
+                        print("Clicked on target video using .click()")
+                    except Exception as click_e:
+                        print(f"Standard click failed: {click_e}. Trying JavaScript click...")
+                        try:
+                            driver.execute_script("arguments[0].click();", found_video)
+                            print("Clicked on target video using JavaScript click.")
+                        except Exception as js_click_e:
+                            print(f"JavaScript click also failed: {js_click_e}")
+                            raise js_click_e
+                    time.sleep(random.uniform(1.5, 3.5))
+                    print("Waiting for video to load...")
+                    try:
+                        WebDriverWait(driver, 20).until(
+                            EC.presence_of_element_located((By.CSS_SELECTOR, "video.html5-main-video"))
+                        )
+                        print("Video player loaded")
+                    except Exception as e:
+                        print("Video player did not load in time, trying to reload or skip...")
+                    print("Video loaded. Ready for further actions.")
+                except Exception as e:
+                    print(f"Error clicking on found target video: {e}")
+            else:
+                print("Target video not found after all attempts.")
+        except Exception as e:
+            print(f"An error occurred in handle_youtube_search_results: {e}")
+            # driver.save_screenshot("youtube_search_results_error.png")
+
+
+    def downplay_videos(self, driver, video_elements):
+        """
+        Downplay a random number of videos between 1 and 3, skipping Shorts
+        """
+        long_video_elements = []
+        try:
+            num_videos_to_downplay = random.randint(1, 3)
+            if len(video_elements) < num_videos_to_downplay:
+                videos_to_downplay = video_elements
+            else:
+                for video in video_elements:
+                    video_link_elem = video.find_element(By.CSS_SELECTOR, 'a#video-title')
+                    video_link = video_link_elem.get_attribute('href')
+                    if video_link and '/shorts/' in video_link:
+                        print(f"Skipping Shorts video: {video_link}")
+                        continue
+                    else:
+                        long_video_elements.append(video)
+
+
+                videos_to_downplay = random.sample(long_video_elements, num_videos_to_downplay)
+            for video in videos_to_downplay:
+                try:
+                    # Try to get the video link
+                    video_link_elem = video.find_element(By.CSS_SELECTOR, 'a#video-title')
+                    video_link = video_link_elem.get_attribute('href')
+                    print(f"watching video: {video_link}")
+                    # Scroll to video
+                    self.scroll(driver, video)
+                    print("Scrolling to video")
+                    # Add human-like hesitation
+                    time.sleep(random.uniform(1.5, 3.5))
+                    # Click on video
+                    print(f"About to click video element: displayed={video.is_displayed()}, enabled={video.is_enabled()}")
+                    try:
+                        video.click()
+                        print("Clicked on video using .click()")
+                    except Exception as click_e:
+                        print(f"Standard click failed: {click_e}. Trying JavaScript click...")
+                        try:
+                            driver.execute_script("arguments[0].click();", video)
+                            print("Clicked on video using JavaScript click.")
+                        except Exception as js_click_e:
+                            print(f"JavaScript click also failed: {js_click_e}")
+                            raise js_click_e
+                    time.sleep(random.uniform(1.5, 3.5))
+                    print("Waiting for video to load...")
+                    # Wait for the video player to appear (up to 20 seconds)
+                    try:
+                        WebDriverWait(driver, 20).until(
+                            EC.presence_of_element_located((By.CSS_SELECTOR, "video.html5-main-video"))
+                        )
+                        print("Video player loaded")
+                    except Exception as e:
+                        print("Video player did not load in time, trying to reload or skip...")
+                        # Optionally: driver.refresh() or continue
+                    print("Video loaded")
+                    # Perform negative action
+                    print("Performing negative action")
+                    self.perform_negative_action(driver)
+                    # Close tab or go back
+                    self.go_back(driver)
+                    print("Closed tab or went back")
+                except Exception as e:
+                    print(f"Error processing video in downplay_videos: {e}")
+                    continue
+        except Exception as e:
+            print(f"Error in downplay_videos: {e}")
+            pass
+
+
+    def check_recently_uploaded(self, driver):
+        """
+        check if recently uploaded is available
+        """
+        # Click "Recently uploaded" filter
+        try:
+            # Wait for the filter bar to be visible
+            # WebDriverWait(driver, 15).until(
+            #     EC.visibility_of_element_located((By.CSS_SELECTOR, "yt-chip-cloud-chip-renderer"))
+            # )
+            time.sleep(3)
+            # Find all filter chips
+            filters = driver.find_elements(By.CSS_SELECTOR, "yt-chip-cloud-chip-renderer")
+            #print(f"Filters: {filters}")
+            for filter_chip in filters:
+                #print(f"Filter chip: {filter_chip}")
+                try:
+                    # Check if this is the "Recently uploaded" filter
+                    chip_text = filter_chip.text.strip()
+                    #print(f"Chip text: {chip_text}")
+                    if "recently uploaded" in chip_text.lower():
+                        #print("Found 'Recently uploaded' filter")
+                        
+                        # Scroll to filter
+                        self.scroll(driver, filter_chip)
+                        
+                        # Add human-like hesitation
+                        time.sleep(random.uniform(1.0, 2.5))
+                        
+                        # Click the filter
+                        filter_chip.click()
+                        # print("Clicked 'Recently uploaded' filter")
+                        
+                        # Wait for results to reload
+                        WebDriverWait(driver, 15).until(
+                            EC.presence_of_element_located((By.CSS_SELECTOR, "ytd-video-renderer"))
+                        )
+                        time.sleep(random.uniform(2.0, 4.0))
+                        
+                except Exception as e:
+                    print(f"Error checking filter: {str(e)}")
+                    continue
+        except Exception as e:
+            print(f"Error checking filter: {str(e)}")
+
+
+    def find_target_video(self, driver, target_video_id):
+        """
+        Find target video and return (found, video_elements)
+        """
+        found = False
+        video_elements = driver.find_elements(
+                By.CSS_SELECTOR, 'ytd-video-renderer:not([hidden])'
+            )
+        found_video = ""
+        
+        for video in video_elements:
+            try:
+                # Get video link
+                video_link = video.find_element(
+                    By.CSS_SELECTOR, 'a#video-title'
+                ).get_attribute('href')
+                
+                current_video_id = self.extract_video_id(video_link)
+                
+                if current_video_id == target_video_id:
+                    print(f"Found target video: {video_link}")
+                    found = True
+                    found_video = video
                     
-                # Scroll down to load more videos
-                scroll_script = """
+                    # Scroll to video
+                    # self.scroll(driver, video)
+                    
+                    # Add human-like hesitation
+                    time.sleep(random.uniform(1.5, 3.5))
+                    
+                    # # Click on video
+                    # video_link_element = video.find_element(
+                    #     By.CSS_SELECTOR, 'a#video-title'
+                    # )
+                    # video_link_element.click()
+                    # print("Clicked on target video")
+                    
+                    # Break out of loops
+                    break
+            
+            except Exception as e:
+                # Skip if any element is stale or not found
+                return False, video_elements
+        
+        return found, video_elements, video
+
+
+    def scroll_to_top(self, driver):
+        """
+        Scroll to the top of the page
+        """
+        scroll_script = """
+            // Human-like scrolling to top with variable speed
+            const start = window.scrollY;
+            const end = 0;
+            const distance = start;  // Since we're going to top
+            const duration = 1000 + Math.random() * 1000;  // 1-2 seconds
+            const startTime = Date.now();
+            
+            function scrollStep() {
+                const currentTime = Date.now();
+                const elapsed = currentTime - startTime;
+                const progress = Math.min(elapsed / duration, 1);
+                
+                // Ease-in-out curve for natural acceleration/deceleration
+                const ease = progress < 0.5 
+                    ? 2 * progress * progress 
+                    : -1 + (4 - 2 * progress) * progress;
+                    
+                window.scrollTo(0, start - distance * ease);
+                
+                if (progress < 1) {
+                    // Random delay between steps (human-like variation)
+                    setTimeout(scrollStep, 20 + Math.random() * 40);
+                }
+            }
+            scrollStep();
+        """
+        driver.execute_script(scroll_script)
+
+
+    def scroll_to_bottom(self, driver):
+        """
+        Scroll to the bottom of the page
+        """
+        scroll_script = """
                     // Human-like scrolling with variable speed
                     const start = window.scrollY;
                     const end = document.documentElement.scrollHeight;
@@ -989,183 +1210,94 @@ class Youtube:
                     }
                     scrollStep();
                 """
-                driver.execute_script(scroll_script)
-                scroll_attempts += 1
-                print(f"Scrolled to load more videos (attempt {scroll_attempts}/{max_scroll_attempts})")
-                
-                # Wait for new videos to load
-                time.sleep(random.uniform(2.0, 4.0))
-            
-            if not found:
-                print(f"Target video not found after {max_scroll_attempts} scroll attempts")
-                scroll_script = """
-                        // Human-like scrolling to top with variable speed
-                        const start = window.scrollY;
-                        const end = 0;
-                        const distance = start;  // Since we're going to top
-                        const duration = 1000 + Math.random() * 1000;  // 1-2 seconds
-                        const startTime = Date.now();
-                        
-                        function scrollStep() {
-                            const currentTime = Date.now();
-                            const elapsed = currentTime - startTime;
-                            const progress = Math.min(elapsed / duration, 1);
-                            
-                            // Ease-in-out curve for natural acceleration/deceleration
-                            const ease = progress < 0.5 
-                                ? 2 * progress * progress 
-                                : -1 + (4 - 2 * progress) * progress;
-                                
-                            window.scrollTo(0, start - distance * ease);
-                            
-                            if (progress < 1) {
-                                // Random delay between steps (human-like variation)
-                                setTimeout(scrollStep, 20 + Math.random() * 40);
-                            }
-                        }
-                        scrollStep();
-                    """
-                driver.execute_script(scroll_script)
-                # Click "Recently uploaded" filter
-                try:
-                    # Wait for the filter bar to be visible
-                    # WebDriverWait(driver, 15).until(
-                    #     EC.visibility_of_element_located((By.CSS_SELECTOR, "yt-chip-cloud-chip-renderer"))
-                    # )
-                    time.sleep(3)
-                    # Find all filter chips
-                    filters = driver.find_elements(By.CSS_SELECTOR, "yt-chip-cloud-chip-renderer")
-                    print(f"Filters: {filters}")
-                    for filter_chip in filters:
-                        print(f"Filter chip: {filter_chip}")
-                        try:
-                            # Check if this is the "Recently uploaded" filter
-                            chip_text = filter_chip.text.strip()
-                            print(f"Chip text: {chip_text}")
-                            if "recently uploaded" in chip_text.lower():
-                                print("Found 'Recently uploaded' filter")
-                                
-                                # Scroll to filter
-                                self.scroll(driver, filter_chip)
-                                
-                                # Add human-like hesitation
-                                time.sleep(random.uniform(1.0, 2.5))
-                                
-                                # Click the filter
-                                filter_chip.click()
-                                print("Clicked 'Recently uploaded' filter")
-                                
-                                # Wait for results to reload
-                                WebDriverWait(driver, 15).until(
-                                    EC.presence_of_element_located((By.CSS_SELECTOR, "ytd-video-renderer"))
-                                )
-                                time.sleep(random.uniform(2.0, 4.0))
-                                
-                                # Search again in filtered results
-                                # found = self.search_new_uploads(driver, target_video_id, max_scroll_attempts=5)
-                                # break
-                        except Exception as e:
-                            print(f"Error checking filter: {str(e)}")
-                            continue
-                except Exception as e:
-                    print(f"Error accessing filters: {str(e)}")
-        
-            # Final result
-            if not found:
-                print(f"Target video not found after all attempts")
-                time.sleep(1000)  # Long sleep for debugging
-            
-        except Exception as e:
-            print(f"An error occurred in handle_youtube_search_results: {e}")
-            # Take screenshot for debugging
-            driver.save_screenshot("youtube_search_results_error.png")
+        driver.execute_script(scroll_script)
 
 
-
-    def watch_competitor_videos(self, driver, num_videos):
-        """
-        Watch 1-3 competitor videos with random negative interactions
-        """
-        # Pseudocode:
-        # for i in range(num_videos):
-        #   seed_keyword = get_random_seed_keyword()
-        #   search_results = self.youtube_search(driver, seed_keyword)
-        #   
-        #   # Select video based on strategy
-        #   if strategy == "Top 3 First Page":
-        #       video = random.choice(top_3_videos(search_results))
-        #   elif strategy == "Last 3 Last Page":
-        #       scroll_to_bottom()
-        #       video = random.choice(last_3_videos())
-        #   elif strategy == "Next Page Pick":
-        #       go_to_next_page()
-        #       video = random.choice(all_videos())
-        #   
-        #   self.watch_video(driver, video, is_competitor=True)
-        #   self.perform_negative_action(driver)
-        #   close_tab_or_back()
-        pass
-
-    def youtube_search(self, driver, keyword):
-        """
-        Perform YouTube search and return results
-        """
-        # Pseudocode:
-        # enter_text(driver, 'search_box_selector', keyword)
-        # wait_for_results()
-        # return get_all_video_elements()
-        pass
-
-    def watch_video(self, driver, video_element, is_competitor=False):
-        """
-        Watch a video with human-like behavior
-        """
-        # Pseudocode:
-        # video_element.click()
-        # wait_for_video_player()
-        #
-        # if is_competitor:
-        #   watch_time = random.uniform(6, 20)
-        #   time.sleep(watch_time)
-        # else:
-        #   # Positive engagement
-        #   watch_percentage = min(60%, random(60%-80%))
-        #   watch_duration = video_length * watch_percentage
-        #   simulate_human_watching(duration=watch_duration)
-        pass
 
     def perform_negative_action(self, driver):
         """
-        Perform random negative interaction on competitor video
+        Perform 1-3 random negative interactions on competitor video, with human-like delays
         """
-        # Pseudocode:
-        # action = random.choice(["dislike", "scroll_comments", "captions_on", "translated_cc"])
-        # if action == "dislike":
-        #   click_dislike_button()
-        # elif action == "scroll_comments":
-        #   scroll_to_comment_section()
-        #   random_comment_scan()
-        # ...
-        pass
+        actions = ["dislike", "scroll_comments", "captions_on"]
+        num_actions = random.randint(2, 3)
+        chosen_actions = random.sample(actions, num_actions)
+        print(f"Chosen actions: {chosen_actions}")
+        for action in chosen_actions:
+            time.sleep(random.uniform(1.0, 2.5))  # Human-like pause before action
+            if action == "dislike":
+                print("Performing dislike action")
+                try:
+                    print("Clicking dislike button")
+                    dislike_button = WebDriverWait(driver, 10).until(
+                        EC.element_to_be_clickable((By.XPATH, "//button[@aria-label='Dislike this video']"))
+                    )
+                    time.sleep(random.uniform(0.5, 1.2))  # Pause before click
+                    dislike_button.click()
+                    print("Clicked dislike button")
+                    time.sleep(random.uniform(0.7, 1.5))  # Pause after click
+                except Exception as e:
+                    print(f"Error clicking dislike button: {e}")
+            elif action == "scroll_comments":
+                print("Scrolling to comment section")
+                try:
+                    comment_section = WebDriverWait(driver, 10).until(
+                        EC.presence_of_element_located((By.CSS_SELECTOR, "ytd-comments"))
+                    )
+                    print("Comment section found")
+                    driver.execute_script("arguments[0].scrollIntoView({behavior: 'smooth', block: 'center'})", comment_section)
+                    print("Scrolled to comment section")
+                    time.sleep(random.uniform(1.0, 2.0))
+                except Exception as e:
+                    print(f"Error scrolling to comment section: {e}")
+            elif action == "captions_on":
+                print("Clicking captions button")
+                try:
+                    captions_button = WebDriverWait(driver, 10).until(
+                        EC.element_to_be_clickable((By.CSS_SELECTOR, "button.ytp-subtitles-button"))
+                    )
+                    time.sleep(random.uniform(0.5, 1.2))  # Pause before click
+                    captions_button.click()
+                    print("Toggled captions/subtitles")
+                    time.sleep(random.uniform(0.7, 1.5))  # Pause after click
+                except Exception as e:
+                    print(f"Error toggling captions: {e}")
 
-    def find_and_engage_target_video(self, driver, video_keyword, video_url=None):
+    def go_back(self, driver, search_keyword="Jordan ones"):
         """
-        Find target video and perform positive engagement
+        Go back to the search results page after negative action. If not on results, try to re-search the keyword.
         """
-        # Pseudocode:
-        # Method 1: Search by keyword
-        # results = youtube_search(driver, video_keyword)
-        # target_video = find_video_in_results(results, video_url)
-        #
-        # if not target_video:
-        #   # Method 2: Sort by latest
-        #   click_sort_filter("Latest Uploaded")
-        #   target_video = find_video_in_results(results, video_url)
-        #
-        # if target_video:
-        #   self.watch_video(driver, target_video, is_competitor=False)
-        #   self.positive_engagement_engine(driver)
-        pass
+        try:
+            print("Attempting to go back to search results...")
+            driver.back()
+            time.sleep(random.uniform(1.5, 3.0))
+            # Check if we're back on the search results page
+            for attempt in range(3):
+                try:
+                    # Look for the search results container
+                    driver.find_element(By.CSS_SELECTOR, "#contents ytd-video-renderer")
+                    print("Back on search results page.")
+                    return
+                except Exception:
+                    print(f"Not on search results page, attempt {attempt+1}/3. Going back again...")
+                    driver.back()
+                    time.sleep(random.uniform(1.5, 3.0))
+            # If still not on results, try to re-search if keyword is provided
+            if search_keyword:
+                print(f"Re-searching for keyword: {search_keyword}")
+                try:
+                    search_box = driver.find_element(By.CSS_SELECTOR, "input[name='search_query']")
+                    search_box.clear()
+                    for char in search_keyword:
+                        search_box.send_keys(char)
+                        time.sleep(random.uniform(0.05, 0.15))
+                    search_box.send_keys(Keys.ENTER)
+                    time.sleep(random.uniform(2.0, 3.0))
+                except Exception as e:
+                    print(f"Error re-searching keyword: {e}")
+        except Exception as e:
+            print(f"Error navigating back: {e}")
+
+
 
     def positive_engagement_engine(self, driver):
         """
